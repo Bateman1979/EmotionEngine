@@ -81,8 +81,10 @@ Puedes ver el detalle completo en el [Roadmap de Mejoras](notes/roadmap_mejoras.
 
 ---
 
-## 📄 Licencia
-Este proyecto está bajo la Licencia MIT. Consulta el archivo para más detalles.
+## 📄 Propiedad Intelectual y Licencia
+**Copyright © 2026 Valentín Gozález Coira - Todos los derechos reservados.**
+
+Este proyecto ha sido desarrollado como parte de un Trabajo Fin de Máster (TFM). Queda prohibida la reproducción, distribución o modificación total o parcial de este código sin la autorización expresa y por escrito del autor.
 
 ---
 **Desarrollado por Valentín Gozález Coira** 🚀
