@@ -1,0 +1,27 @@
+#### Librerías principales
+torch
+torchaudio
+transformers
+soundfile
+
+# Micrófono y audio
+pyaudio
+
+# Procesamiento
+numpy
+scipy
+
+# Modelos y IA
+silero-vad
+pyannote.audio
+omegaconf
+hydra-core
+
+
+# Web UI (interfaz web)
+fastapi
+python-multipart
+uvicorn
+
+# Para las claves secretas
+python-dotenv

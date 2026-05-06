@@ -1,0 +1,208 @@
+<!-- ==============================================================================
+  © 2026 Valentín González Coira (cabezaburbuja@gmail.com).
+  EBIS Business School - Trabajo de Fin de Máster (TFM).
+  Todos los derechos reservados.
+  Este código es propiedad intelectual exclusiva del autor.
+  Queda prohibida su copia, distribución o modificación sin autorización expresa.
+  Proyecto: Emotion Engine
+  ============================================================================== -->
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emotion Engine | Real-Time Analysis</title>
+    <meta name="description" content="Dashboard de análisis emocional en tiempo real impulsado por Inteligencia Artificial">
+    <link rel="stylesheet" href="style.css?v=3">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Animated Background Orbs -->
+    <div class="bg-orbs" aria-hidden="true">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-inner">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+                            <line x1="9" y1="9" x2="9.01" y2="9"/>
+                            <line x1="15" y1="9" x2="15.01" y2="9"/>
+                        </svg>
+                    </div>
+                    <h1>Emotion<span>Engine</span></h1>
+                </div>
+
+                <nav class="controls">
+                    <div class="status-card" id="status-card">
+                        <div class="status-indicator" id="engine-status-dot"></div>
+                        <div class="status-text">
+                            <span id="engine-status-label">Motor Detenido</span>
+                            <small id="engine-substatus">Inactivo</small>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <div class="config-group">
+                            <label for="max-speakers">Límite de Hablantes (Máx.)</label>
+                            <input type="number" id="max-speakers" min="1" max="10" placeholder="Auto-detectar">
+                        </div>
+                    </div>
+
+                    <button id="start-btn" class="btn primary">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        <span>Iniciar Análisis</span>
+                    </button>
+                    <button id="stop-btn" class="btn danger" style="display: none;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                        <span>Detener Análisis</span>
+                    </button>
+                </nav>
+
+                <div class="sidebar-footer">
+                    <button id="list-devices" class="btn ghost small">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                        Dispositivos
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="welcome">
+                    <h2>Panel de Control</h2>
+                    <p>Análisis emocional en tiempo real</p>
+                </div>
+                <div class="live-clock" id="clock">00:00:00</div>
+            </header>
+
+            <!-- Live Speaker Indicator -->
+            <div id="live-speaker-bar" class="live-speaker-bar hidden">
+                <div class="live-dot"></div>
+                <span class="live-label">EN VIVO</span>
+                <span id="live-speaker-name" class="live-name">-</span>
+                <div class="live-wave">
+                    <span></span><span></span><span></span><span></span><span></span>
+                </div>
+            </div>
+
+            <!-- Metrics Grid -->
+            <section class="metrics-grid">
+                <div class="metric-card" id="metric-emotion">
+                    <div class="metric-icon emotion-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                    </div>
+                    <div class="metric-info">
+                        <label>Última Emoción</label>
+                        <h3 id="last-emotion">ESPERANDO...</h3>
+                    </div>
+                    <div class="metric-trend" id="last-score">-</div>
+                </div>
+                <div class="metric-card" id="metric-speaker">
+                    <div class="metric-icon speaker-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    </div>
+                    <div class="metric-info">
+                        <label>Sujeto Analizado</label>
+                        <h3 id="last-speaker">-</h3>
+                    </div>
+                </div>
+                <div class="metric-card" id="metric-time">
+                    <div class="metric-icon time-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    </div>
+                    <div class="metric-info">
+                        <label>Última Actividad</label>
+                        <h3 id="last-time">-</h3>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Charts Section -->
+            <section class="charts-section">
+                <div class="chart-container main-chart">
+                    <div class="chart-header">
+                        <h3>Evolución Emocional</h3>
+                        <div class="chart-controls">
+                            <label>Sujeto:</label>
+                            <select id="speaker-filter" onchange="setSpeakerFilter(this.value || null)">
+                                <option value="">Todos</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="chart-body">
+                        <canvas id="timelineChart"></canvas>
+                    </div>
+                </div>
+                <div class="profiles-section">
+                    <div class="chart-header">
+                        <h3>Análisis por Sujeto</h3>
+                    </div>
+                    <div id="speaker-profiles" class="profiles-grid">
+                        <!-- Speaker profile cards will be injected here -->
+                        <div class="empty-state">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3;margin-bottom:0.75rem"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                            <p>Esperando detección de sujetos...</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+    
+    <!-- Calibration Modal -->
+    <div id="calibration-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-icon">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                </div>
+                <h2>Calibración de Voz</h2>
+                <p>Necesitamos 15 segundos de tu voz para identificarte como el "Comercial" y no incluirte en el análisis emocional.</p>
+            </div>
+            
+            <div class="calibration-body">
+                <div class="recording-visualizer">
+                    <div id="progress-ring" class="progress-ring">
+                        <svg width="120" height="120">
+                            <circle class="bg" cx="60" cy="60" r="54"></circle>
+                            <circle id="progress-bar" class="progress" cx="60" cy="60" r="54"></circle>
+                        </svg>
+                        <div id="timer-text" class="timer-text">0s</div>
+                    </div>
+                    <div id="vumeter" class="vumeter">
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                        <div class="bar"></div>
+                    </div>
+                </div>
+                
+                <p class="instructions" id="calib-instructions">Pulsa el botón y habla con naturalidad (cuéntanos qué tal el día, por ejemplo).</p>
+            </div>
+            
+            <div class="modal-footer">
+                <button id="start-calib-btn" class="btn primary">Iniciar Grabación (15s)</button>
+                <button id="skip-calib-btn" class="btn ghost">Saltar Calibración</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Toast -->
+    <div id="error-toast" class="toast hidden"></div>
+
+    <script src="calibration.js?v=3"></script>
+    <script src="app.js?v=3"></script>
+</body>
+</html>
