@@ -76,11 +76,25 @@ class Diarizer:
             if hasattr(diarization, "speaker_diarization"):
                 annotation = diarization.speaker_diarization
 
-            detected_segments = []
+            # Recopilar todos los turnos válidos (mayores a 0.8s)
+            all_turns = []
             for turn, _, speaker_id in annotation.itertracks(yield_label=True):
-                start_s, end_s = turn.start, turn.end
-                # Filtro de duración: Ignorar fragmentos menores a 0.8s (evita Mean of empty slice)
-                if (end_s - start_s) < 0.8: continue
+                if (turn.end - turn.start) >= 0.8:
+                    all_turns.append((turn.start, turn.end, speaker_id))
+
+            detected_segments = []
+            for i, (start_s, end_s, speaker_id) in enumerate(all_turns):
+                # Comprobar solapamiento con cualquier otro turno
+                is_overlapping = False
+                for j, (other_start, other_end, _) in enumerate(all_turns):
+                    if i == j: continue
+                    # Hay solapamiento si (start1 < end2) y (start2 < end1)
+                    if start_s < other_end and other_start < end_s:
+                        is_overlapping = True
+                        break
+                
+                if is_overlapping:
+                    continue # Descartar fragmento solapado
                 
                 start_sample = int(start_s * sample_rate)
                 end_sample = int(end_s * sample_rate)
