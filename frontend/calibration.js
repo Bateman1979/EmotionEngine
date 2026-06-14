@@ -35,7 +35,7 @@ async function startCalibration() {
     
     btn.disabled = true;
     btn.innerText = "🔴 Grabando...";
-    instructions.innerText = "¡Te escuchamos! Sigue hablando durante 15 segundos...";
+    instructions.innerText = "¡Te escuchamos! Lee el texto con naturalidad durante 30 segundos...";
     
     try {
         console.log("Solicitando micrófono...");
@@ -103,8 +103,8 @@ async function startCalibration() {
         updateVUMeter();
 
         // Lógica del contador
-        let timeLeft = 15;
-        const totalDuration = 15;
+        let timeLeft = 30;
+        const totalDuration = 30;
         
         const interval = setInterval(() => {
             timeLeft -= 0.1;
@@ -113,7 +113,7 @@ async function startCalibration() {
                 if (mediaRecorder.state === "recording") {
                     mediaRecorder.stop();
                 }
-                timerText.innerText = "15s";
+                timerText.innerText = "30s";
                 progressBar.style.strokeDashoffset = 0;
             } else {
                 const displayTime = Math.ceil(timeLeft);

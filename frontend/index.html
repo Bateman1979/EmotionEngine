@@ -168,7 +168,7 @@
                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
                 </div>
                 <h2>Calibración de Voz</h2>
-                <p>Necesitamos 15 segundos de tu voz para identificarte como el "Comercial" y no incluirte en el análisis emocional.</p>
+                <p>Necesitamos 30 segundos de tu voz para identificarte como el "Comercial" y aislarte del análisis emocional.</p>
             </div>
             
             <div class="calibration-body">
@@ -189,11 +189,14 @@
                     </div>
                 </div>
                 
-                <p class="instructions" id="calib-instructions">Pulsa el botón y habla con naturalidad (cuéntanos qué tal el día, por ejemplo).</p>
+                <p class="instructions" id="calib-instructions">Pulsa el botón y lee el siguiente texto en voz alta con naturalidad:</p>
+                <div class="reading-text-box" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; font-style: italic; font-size: 0.9em; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1); line-height: 1.5; color: rgba(255,255,255,0.9);">
+                    "Para garantizar la máxima calidad en nuestro análisis, estoy grabando este perfil de voz. El objetivo es que el sistema reconozca mi tono, mis pausas y mi timbre único sin equivocarse. Durante las llamadas con clientes, es vital mantener una separación clara. A veces hablaré más rápido, otras más despacio. Usaremos palabras técnicas como rentabilidad, fluctuación o sinergia, y también expresiones más cotidianas para generar empatía. Al leer este párrafo completo con naturalidad, me aseguro de que el motor de inteligencia artificial construya una huella acústica robusta y precisa de mi identidad."
+                </div>
             </div>
             
             <div class="modal-footer">
-                <button id="start-calib-btn" class="btn primary">Iniciar Grabación (15s)</button>
+                <button id="start-calib-btn" class="btn primary">Iniciar Grabación (30s)</button>
                 <button id="skip-calib-btn" class="btn ghost">Saltar Calibración</button>
             </div>
         </div>

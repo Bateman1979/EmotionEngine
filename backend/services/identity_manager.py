@@ -60,7 +60,7 @@ class SpeakerManager:
     def get_identity(self, embedding, duration):
         if embedding is None or np.isnan(embedding).any():
             return "Identificando..."
-
+        
         embedding = embedding / np.linalg.norm(embedding)
 
         # ── Prioridad 0: ¿Es el Comercial calibrado? ──────────────────────────
