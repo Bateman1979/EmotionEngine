@@ -124,7 +124,7 @@ def engine_callback(emotion, score, filepath, speaker=None, all_probs=None):
     if emotion == "IDENTIFICANDO...":
         if loop and speaker:
             asyncio.run_coroutine_threadsafe(
-                manager.broadcast({"type": "speaker_active", "speaker": speaker}),
+                manager.broadcast({"type": "speaker_active", "speaker": speaker, "duration": score}),
                 loop
             )
         return

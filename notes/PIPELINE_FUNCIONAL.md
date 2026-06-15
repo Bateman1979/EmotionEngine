@@ -37,10 +37,11 @@ Con el bloque de 2 segundos listo, entra en juego la **Diarización**:
 
 1.  **Extracción de Características**: El modelo analiza el fragmento y detecta cuántas voces hay y en qué milisegundos exactos habla cada una.
 2.  **Cálculo de Embeddings**: Se genera una "huella acústica" matemática de cada voz detectada.
-3.  **Comparación de Identidad**:
-    *   El `IdentityManager` compara estas huellas contra la base de datos de perfiles (incluyendo la calibración del "Comercial").
-    *   **Filtrado de Comercial**: Si la huella coincide con la del comercial (tú), el audio se descarta inmediatamente por privacidad y relevancia.
-    *   **Asignación de Sujeto**: Si la voz es nueva, se crea el "Sujeto A"; si ya es conocida, se le asigna a su perfil existente.
+3.  **Comparación de Identidad (Sistema de Dos Niveles v5)**:
+    *   **Prioridad 0 - Filtrado de Comercial**: El `IdentityManager` compara la huella con la calibración del comercial. Si coincide, el audio se descarta (no se procesa su emoción).
+    *   **Prioridad 1 - Perfiles Graduados**: Se compara con los sujetos ya confirmados (Sujeto A, B...) usando un umbral estricto. Si se alcanza el límite máximo de hablantes, el umbral se flexibiliza dinámicamente para evitar perfiles duplicados.
+    *   **Prioridad 2 - Perfiles Tentativos**: Si no encaja con los graduados, se busca entre voces temporales (umbral permisivo). Los perfiles tentativos similares se consolidan continuamente. Al acumular **15 segundos**, se "gradúan" y reciben un nombre oficial (ej. Sujeto A).
+    *   **Prioridad 3 - Nuevo Perfil**: Si es una voz completamente nueva, se crea como perfil tentativo a la espera de más muestras.
 
 ---
 

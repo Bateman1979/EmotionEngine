@@ -149,18 +149,23 @@ function updateUI() {
 }
 
 function updateEngineStatusUI(isRunning) {
+    const bar = document.getElementById('live-speaker-bar');
     if (isRunning) {
         engineStatusDot.classList.add('online');
         engineStatusLabel.innerText = "Motor Activo";
         engineSubstatus.innerText = "Escuchando...";
         startBtn.style.display = 'none';
         stopBtn.style.display = 'flex';
+        bar.classList.remove('hidden');
+        hideLiveSpeaker();
     } else {
         engineStatusDot.classList.remove('online');
         engineStatusLabel.innerText = "Motor Detenido";
         engineSubstatus.innerText = "Inactivo";
         startBtn.style.display = 'flex';
         stopBtn.style.display = 'none';
+        bar.classList.add('hidden');
+        bar.classList.remove('waiting');
     }
 }
 
@@ -180,11 +185,20 @@ function showToast(msg, type = "error") {
 // --- Live Speaker Indicator ---
 let hideSpeakerTimeout = null;
 
-function showLiveSpeaker(speaker) {
+function showLiveSpeaker(speaker, duration) {
     const bar = document.getElementById('live-speaker-bar');
     const nameEl = document.getElementById('live-speaker-name');
+    const durationEl = document.getElementById('live-speaker-duration');
+    
     nameEl.innerText = speaker;
+    if (duration !== undefined && duration > 0) {
+        durationEl.innerText = ` (${duration.toFixed(1)}s)`;
+    } else {
+        durationEl.innerText = '';
+    }
+    
     bar.classList.remove('hidden');
+    bar.classList.remove('waiting');
     // Auto-ocultar si no llegan más eventos (silencio de 3s)
     clearTimeout(hideSpeakerTimeout);
     hideSpeakerTimeout = setTimeout(hideLiveSpeaker, 3000);
@@ -192,7 +206,12 @@ function showLiveSpeaker(speaker) {
 
 function hideLiveSpeaker() {
     const bar = document.getElementById('live-speaker-bar');
-    bar.classList.add('hidden');
+    const nameEl = document.getElementById('live-speaker-name');
+    const durationEl = document.getElementById('live-speaker-duration');
+    
+    nameEl.innerText = 'Esperando voz...';
+    durationEl.innerText = '';
+    bar.classList.add('waiting');
 }
 
 // --- WebSocket ---
@@ -204,19 +223,28 @@ function setupWebSocket() {
         const msg = JSON.parse(event.data);
         if (msg.type === 'status') {
             engineSubstatus.innerText = msg.value;
-            if (msg.is_active) {
-                lastSpeakerEl.innerText = "🎙️ Identificando voz...";
-                lastSpeakerEl.style.opacity = "0.7";
-                lastEmotionEl.innerText = "ESCUCHANDO...";
-                lastEmotionEl.style.color = "var(--text-secondary)";
-                lastScoreEl.innerText = "-";
-            } else {
+            if (!msg.is_active) {
                 // Silencio: ocultar el indicador de hablante activo
                 hideLiveSpeaker();
                 lastSpeakerEl.style.opacity = "1";
             }
         } else if (msg.type === 'speaker_active') {
-            showLiveSpeaker(msg.speaker);
+            showLiveSpeaker(msg.speaker, msg.duration);
+            // Mostrar la última emoción conocida para este hablante
+            const speakerHistory = history.filter(h => h.speaker === msg.speaker && !h.speaker.startsWith("Identificando"));
+            if (speakerHistory.length > 0) {
+                const latest = speakerHistory[speakerHistory.length - 1];
+                lastEmotionEl.innerText = latest.emotion.toUpperCase();
+                lastEmotionEl.style.color = "var(--text-primary)";
+                lastScoreEl.innerText = `${Math.round(latest.score * 100)}%`;
+                lastSpeakerEl.innerText = latest.speaker;
+            } else {
+                lastEmotionEl.innerText = "ANALIZANDO...";
+                lastEmotionEl.style.color = "var(--text-secondary)";
+                lastScoreEl.innerText = "-";
+                lastSpeakerEl.innerText = msg.speaker;
+            }
+            lastSpeakerEl.style.opacity = "1";
         } else if (msg.type === 'result') {
             lastSpeakerEl.style.opacity = "1";
             lastEmotionEl.style.color = "var(--text-primary)";

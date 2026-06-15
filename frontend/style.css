@@ -418,6 +418,41 @@ body {
     display: none;
 }
 
+.live-speaker-bar.waiting {
+    background: rgba(148, 163, 184, 0.1);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.live-speaker-bar.waiting .live-dot {
+    background: var(--text-muted);
+    animation: none;
+}
+
+.live-speaker-bar.waiting .live-label {
+    color: var(--text-muted);
+}
+
+.live-speaker-bar.waiting .live-name {
+    color: var(--text-secondary);
+}
+
+.live-speaker-bar.waiting .live-duration {
+    opacity: 0;
+}
+
+.live-duration {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+}
+
+.live-speaker-bar.waiting .live-wave span {
+    background: var(--text-muted);
+    animation: none;
+    transform: scaleY(0.3);
+}
+
 .live-dot {
     width: 8px;
     height: 8px;

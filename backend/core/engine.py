@@ -48,8 +48,9 @@ def run_engine(callback=None, error_callback=None, stop_event=None, max_speakers
     diarizer  = Diarizer()
     analyzer  = EmotionAnalyzer()
 
-    # Buffer de audio por hablante: { "Sujeto A": {"frames": [np.array,...], "duration": float} }
+    # Buffer de audio por hablante: { "Sujeto A": {"frames": [np.array,...], "duration": float, "last_time": float, "sr": int} }
     speaker_buffers = {}
+    active_speaker = None
 
     print("\n" + "="*38)
     print("   MOTOR DE EMOCIONES v2 — Por Perfil")
@@ -61,6 +62,18 @@ def run_engine(callback=None, error_callback=None, stop_event=None, max_speakers
             if stop_event and stop_event.is_set():
                 print("[INFO] Deteniendo motor por petición externa...")
                 break
+
+            now = time.time()
+            # Chequeo de Timeout y Stale Buffers
+            for spk, buf in speaker_buffers.items():
+                if buf["duration"] >= 5.0 and (now - buf["last_time"]) >= 5.0:
+                    profile = diarizer.speaker_manager.get_profile(spk)
+                    if profile is not None and profile.total_duration >= 15.0:
+                        _trigger_emotion_analysis(spk, buf, buf.get("sr", 16000), analyzer, callback, reason="Timeout 5s silencio")
+                elif buf["duration"] > 0 and (now - buf["last_time"]) > STALE_THRESHOLD_SECS:
+                    print(f"[BUFFER] {spk}: Gap temporal detectado (>{STALE_THRESHOLD_SECS}s). Reiniciando buffer.")
+                    buf["frames"] = []
+                    buf["duration"] = 0.0
 
             # 1. Lectura de audio
             try:
@@ -115,12 +128,26 @@ def run_engine(callback=None, error_callback=None, stop_event=None, max_speakers
 
                     # Notificar identidad al dashboard (sin guardar como resultado)
                     if callback:
-                        callback("IDENTIFICANDO...", 0, None, speaker)
+                        current_dur = 0.0
+                        if speaker in speaker_buffers:
+                            current_dur = speaker_buffers[speaker]["duration"]
+                        callback("IDENTIFICANDO...", current_dur + dur, None, speaker)
 
                     # Descartar al comercial — privacidad y ley
                     if speaker == "Comercial":
                         print(f"[INFO] Voz del comercial detectada. Descartando.")
                         continue
+
+                    # Cambio de turno
+                    if active_speaker and active_speaker != speaker:
+                        if active_speaker in speaker_buffers:
+                            buf_prev = speaker_buffers[active_speaker]
+                            if buf_prev["duration"] >= 5.0:
+                                profile = diarizer.speaker_manager.get_profile(active_speaker)
+                                if profile is not None and profile.total_duration >= 15.0:
+                                    _trigger_emotion_analysis(active_speaker, buf_prev, buf_prev.get("sr", sr), analyzer, callback, reason="Cambio de turno")
+                    
+                    active_speaker = speaker
 
                     # 6. Extraer audio del hablante y acumular en su buffer
                     now = time.time()
@@ -133,17 +160,10 @@ def run_engine(callback=None, error_callback=None, stop_event=None, max_speakers
                         continue  # Silencio
 
                     if speaker not in speaker_buffers:
-                        speaker_buffers[speaker] = {"frames": [], "duration": 0.0, "last_time": now}
+                        speaker_buffers[speaker] = {"frames": [], "duration": 0.0, "last_time": now, "sr": sr}
 
                     buf = speaker_buffers[speaker]
                     
-                    # Comprobar si el audio acumulado es "viejo"
-                    time_diff = now - buf["last_time"]
-                    if time_diff > STALE_THRESHOLD_SECS and buf["duration"] > 0:
-                        print(f"[BUFFER] {speaker}: Gap temporal detectado ({time_diff:.1f}s). Reiniciando buffer.")
-                        buf["frames"] = []
-                        buf["duration"] = 0.0
-
                     buf["frames"].append(audio_slice)
                     buf["duration"] += dur
                     buf["last_time"] = now
@@ -155,23 +175,7 @@ def run_engine(callback=None, error_callback=None, stop_event=None, max_speakers
                     is_safe = profile is not None and profile.total_duration >= 15.0
 
                     if is_safe and buf["duration"] >= EMOTION_WINDOW_SECS:
-                        print(f"\n[EMOCIÓN] Analizando {EMOTION_WINDOW_SECS}s de '{speaker}'...")
-
-                        # Concatenar y guardar audio acumulado
-                        combined = np.concatenate(buf["frames"])
-                        emotion_file = _save_combined_audio(combined, sr, speaker)
-
-                        # Resetear buffer para el siguiente ciclo
-                        buf["frames"]   = []
-                        buf["duration"] = 0.0
-
-                        if emotion_file:
-                            emotion, score, all_probs = analyzer.analyze(emotion_file)
-                            if emotion and score is not None and score > 0.0:
-                                if callback:
-                                    callback(emotion, score, emotion_file, speaker, all_probs)
-                            else:
-                                print(f"[WARN] Resultado de emoción inválido para '{speaker}'.")
+                        _trigger_emotion_analysis(speaker, buf, sr, analyzer, callback, reason="Límite 15s")
 
                 _cleanup(chunk_file)
 
@@ -189,6 +193,26 @@ def run_engine(callback=None, error_callback=None, stop_event=None, max_speakers
             print("[INFO] Hardware de audio liberado correctamente.")
         except:
             pass
+
+
+def _trigger_emotion_analysis(speaker, buf, sr, analyzer, callback, reason="Límite"):
+    print(f"\n[EMOCIÓN] Analizando {buf['duration']:.1f}s de '{speaker}' ({reason})...")
+
+    combined = np.concatenate(buf["frames"])
+    emotion_file = _save_combined_audio(combined, sr, speaker)
+
+    # Resetear buffer para el siguiente ciclo
+    buf["frames"]   = []
+    buf["duration"] = 0.0
+    buf["last_time"] = time.time()
+
+    if emotion_file:
+        emotion, score, all_probs = analyzer.analyze(emotion_file)
+        if emotion and score is not None and score > 0.0:
+            if callback:
+                callback(emotion, score, emotion_file, speaker, all_probs)
+        else:
+            print(f"[WARN] Resultado de emoción inválido para '{speaker}'.")
 
 
 def _save_combined_audio(waveform, sr, speaker):

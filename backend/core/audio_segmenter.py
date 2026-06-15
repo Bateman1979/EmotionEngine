@@ -43,10 +43,15 @@ class AudioSegmenter:
             return None
 
         elif event == "END":
-            # Descartamos cualquier audio menor a 2s intencionalmente.
-            # Los fragmentos cortos ensucian los perfiles sonoros.
             self.is_recording = False
+            filename = None
+            # Emitir fragmento residual si tiene al menos 0.5s para no perder finales
+            if len(self.frames) >= (CHUNKS_PER_SECOND * 0.5):
+                filename = self.save_segment()
+                
             self.frames = []
+            if filename:
+                return (filename, "FINAL_CHUNK")
             return None
 
         elif self.is_recording:
@@ -68,13 +73,11 @@ class AudioSegmenter:
         timestamp = int(time.time() * 1000)  # ms para evitar colisiones
         filename = os.path.join(AUDIO_DIR, f"chunk_{timestamp}.wav")
 
-        p = pyaudio.PyAudio()
         wf = wave.open(filename, 'wb')
         wf.setnchannels(CHANNELS)
-        wf.setsampwidth(p.get_sample_size(FORMAT))
+        wf.setsampwidth(pyaudio.get_sample_size(FORMAT))
         wf.setframerate(RATE)
         wf.writeframes(b''.join(self.frames))
         wf.close()
-        p.terminate()
 
         return filename
