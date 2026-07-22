@@ -11,6 +11,11 @@ data/results.json
 data/speakers.pkl
 data/calibration.pkl
 temp_calibration.webm
+transcripts.jsonl
+
+# Logs de rendimiento (generados en tiempo de ejecución)
+vram_log.csv
+benchmark_log.csv
 
 # Modelos y caché
 .cache/
@@ -22,3 +27,4 @@ models/
 .idea/
 .DS_Store
 Thumbs.db
+

@@ -13,6 +13,7 @@ from pyannote.audio import Pipeline, Model, Inference
 import os
 from dotenv import load_dotenv
 from backend.services.identity_manager import SpeakerManager
+from backend.config import DIARIZATION_STRICT_THRESHOLD, DIARIZATION_TENTATIVE_THRESHOLD, DIARIZATION_GRADUATION_TIME
 
 load_dotenv()
 
@@ -20,8 +21,29 @@ class Diarizer:
     """
     Identificador de interlocutores con soporte multi-hablante.
     """
-    def __init__(self):
-        self.speaker_manager = SpeakerManager(strict_threshold=0.48, tentative_threshold=0.60)
+    def __init__(self, pipeline=None, embedding_model=None, embedding_inference=None):
+        self.speaker_manager = SpeakerManager(
+            strict_threshold=DIARIZATION_STRICT_THRESHOLD,
+            tentative_threshold=DIARIZATION_TENTATIVE_THRESHOLD,
+            graduation_time=DIARIZATION_GRADUATION_TIME
+        )
+        
+        # Si se proporcionan modelos pre-cargados, reutilizarlos
+        if pipeline is not None and embedding_model is not None:
+            self.pipeline = pipeline
+            self.embedding_model = embedding_model
+            # Usar la misma lógica de dispositivo que en la carga estándar
+            self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+            
+            if embedding_inference is not None:
+                self.inference = embedding_inference
+            else:
+                self.inference = Inference(self.embedding_model, window="sliding", duration=5.0, step=2.5)
+            self.inference_whole = Inference(self.embedding_model, window="whole")
+            print("[INFO] Diarizer inicializado con modelos pre-cargados.")
+            return
+        
+        # Carga estándar (fallback)
         token = os.getenv("HF_TOKEN")
         if not token:
             print("[ERROR] HF_TOKEN no encontrado")
@@ -42,6 +64,7 @@ class Diarizer:
                 self.device = torch.device("cpu")
 
             self.inference = Inference(self.embedding_model, window="sliding", duration=5.0, step=2.5)
+            self.inference_whole = Inference(self.embedding_model, window="whole")
             
         except Exception as e:
             print(f"[ERROR] Error al cargar modelos: {e}")
@@ -132,9 +155,8 @@ class Diarizer:
                         return result
 
             # Fallback: ventana completa para segmentos sin datos deslizantes
-            inf_whole = Inference(self.embedding_model, window="whole")
-            inf_whole.to(self.device)
-            result = inf_whole({"waveform": chunk_tensor, "sample_rate": sample_rate})
+            self.inference_whole.to(self.device)
+            result = self.inference_whole({"waveform": chunk_tensor, "sample_rate": sample_rate})
             if result is not None and not np.any(np.isnan(result)):
                 return result
             return None

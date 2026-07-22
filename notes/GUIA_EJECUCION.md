@@ -1,6 +1,6 @@
-# Guía de Ejecución: Emotion Engine 🎭
+# Guía de Ejecución: Emotion Engine 🎭 (v5 - Arquitectura Completa)
 
-Esta guía detalla los pasos necesarios para poner en marcha el sistema de análisis emocional en tiempo real, optimizado con una arquitectura modular y profesional.
+Esta guía detalla los pasos necesarios para poner en marcha el sistema de análisis emocional en tiempo real, optimizado con una arquitectura modular, inferencia en cascada (Acústica + Semántica) y soporte de ejecución local en hardware de consumo (*Edge AI*).
 
 ---
 
@@ -9,8 +9,9 @@ Esta guía detalla los pasos necesarios para poner en marcha el sistema de anál
 Antes de comenzar, asegúrate de tener instalado:
 
 *   **Python 3.10+**: Lenguaje base del sistema.
-*   **FFmpeg**: Esencial para el procesamiento de audio. Debe estar en el `PATH`.
+*   **FFmpeg**: Esencial para el procesamiento de audio. Debe estar en el `PATH` del sistema.
 *   **VB-Audio Virtual Cable**: [Descargar aquí](https://vb-audio.com/Cable/). Necesario para capturar audio de aplicaciones (Zoom, Teams, etc.).
+*   **Hardware (GPU)**: Tarjeta gráfica NVIDIA (ej. RTX 2060 o superior) con al menos 6GB de VRAM y **CUDA Toolkit** instalado para soportar la cuantización en 4-bit.
 *   **HF_TOKEN**: Un token de Hugging Face con acceso a los modelos de Pyannote. 
     > [!IMPORTANT]
     > Debes ir a la web de Hugging Face con tu cuenta y **aceptar las condiciones de uso** de estos dos modelos para que el token funcione correctamente:
@@ -35,6 +36,8 @@ Antes de comenzar, asegúrate de tener instalado:
     ```text
     HF_TOKEN=tu_token_de_hugging_face
     ```
+4.  **Base de Conocimiento (RAG)**:
+    Puedes añadir manuales de ventas, guiones o información de producto en el archivo `data/knowledge_base.txt`. El sistema RAG (*Retrieval-Augmented Generation*) lo leerá automáticamente.
 
 ---
 
@@ -42,19 +45,16 @@ Antes de comenzar, asegúrate de tener instalado:
 
 El sistema está organizado de forma modular para facilitar su mantenimiento:
 
-*   `main.py`: Punto de entrada principal (servidor web).
+*   `main.py`: Punto de entrada principal (servidor web FastAPI y WebSockets).
+*   `monitor.py`: Script independiente para registrar y auditar el consumo de VRAM de la GPU.
 *   `backend/`:
-    *   `api/`: Servidor FastAPI y gestión de WebSockets.
-    *   `core/`: Motor de audio y orquestación del análisis (VAD Silero, segmentación).
-    *   `services/`: Modelos de IA (Pyannote Diarization, GSI-UPM Emoción) y gestión de identidades.
-    *   `config.py`: Parámetros globales.
-*   `frontend/`: Interfaz de usuario moderna (HTML/JS/CSS).
-*   `scripts/`: Herramientas adicionales y utilidades.
-*   `data/`: Almacenamiento de logs, audios y perfiles de locutores (`speakers.pkl`).
-*   `notes/`: Documentación técnica e historial de modelos.
-
-> [!TIP]
-> Para más detalles sobre el flujo interno de datos, consulta el [Pipeline Funcional](PIPELINE_FUNCIONAL.md) o el [Historial de Modelos](notes/model_history.md).
+    *   `api/`: Controladores de los *endpoints*.
+    *   `core/`: Motor principal (`engine.py`), pre-cargador de modelos (`preloader.py`) y orquestación de audio (VAD Silero).
+    *   `services/`: Modelos de IA (Pyannote Diarization, GSI-UPM Emoción, Whisper STT, Qwen2.5 Causa Raíz, RAG) y `identity_manager.py`.
+    *   `config.py`: Parámetros globales y umbrales.
+*   `frontend/`: Interfaz de usuario interactiva (HTML/JS/CSS).
+*   `data/`: Almacenamiento de logs, audios temporales, base de conocimiento RAG y perfiles de locutores consolidados.
+*   `notes/`: Documentación técnica e historial de versiones.
 
 ---
 
@@ -67,33 +67,43 @@ El sistema separa tu voz del resto de interlocutores mediante hardware virtual:
     *   Entrada de Windows: Tu **Micrófono real**.
 2.  **En la aplicación de llamada (Zoom/Teams)**:
     *   Salida de audio: **CABLE Input**.
-    *   De esta forma, el audio de los clientes pasará por el cable virtual y el motor podrá procesarlo en exclusiva.
+    *   De esta forma, el audio de los clientes pasará por el cable virtual y el motor podrá procesarlo de manera limpia.
 
 ---
 
-### Ejecución
-Para iniciar el sistema, ejecuta:
+## 🚀 5. Ejecución del Sistema
+
+Para iniciar el sistema de forma óptima (con pre-carga de los 5 modelos de IA), ejecuta:
 ```powershell
 python main.py
 ```
-Acceso en tu navegador: `http://localhost:8001`
+Acceso a la interfaz en tu navegador: `http://localhost:8001`
+
+*(Opcional)* Si quieres monitorear el consumo de tu tarjeta gráfica (VRAM) en tiempo real y guardar un log, abre otra terminal y ejecuta:
+```powershell
+python monitor.py
+```
 
 ---
 
 ## 🔄 6. Flujo de Trabajo y Funcionalidades
 
-1.  **Calibración Inicial**: La primera vez, usa la web para grabar 15s de tu voz. Se guardará como "Comercial" para ser ignorada en el análisis, protegiendo tu privacidad y centrando la métrica en el cliente.
-2.  **Configuración de Límite de Hablantes (Nuevo)**:
-    *   En el panel lateral verás una opción **"Límite de Hablantes (Máx.)"**.
-    *   Úsala si sabes cuántas personas hay en la reunión (ej. pon `1` si hablas con un solo cliente). Esto ayuda a la IA a evitar la fragmentación de identidades (que no detecte voces fantasma). Si lo dejas vacío, el sistema intentará auto-detectar.
-3.  **Análisis**: Pulsa **"Iniciar Análisis"**. El motor segmentará el audio continuamente y realizará un análisis emocional profundo cada 15s de voz acumulada neta por sujeto.
-4.  **Resultados**: Visualiza en tiempo real las probabilidades emocionales y la evolución temporal en el panel de control interactivo.
+1.  **Carga de Modelos**: Al arrancar `main.py`, la interfaz mostrará un estado de "Cargando Modelos". El sistema cargará en la GPU: VAD, Pyannote, Wav2Vec2, Whisper y Qwen2.5 cuantizado. Esto toma un par de minutos la primera vez.
+2.  **Calibración Inicial**: La primera vez, usa la web para grabar 15s de tu voz. Se guardará como "Comercial" para ser ignorada en los análisis emocionales, protegiendo tu privacidad.
+3.  **Configuración de Límite de Hablantes**: En el panel lateral puedes fijar un "Límite de Hablantes (Máx.)" (ej. `1` si hablas con un solo cliente) para evitar voces fantasma.
+4.  **Sistema de Identidades Graduadas**:
+    *   Cuando alguien nuevo hable, verás que aparece como **"Identificando..."** (Perfil Tentativo).
+    *   Una vez acumule **15 segundos netos de voz**, se convertirá en un "Sujeto X" consolidado y comenzará a recibir análisis emocional.
+5.  **Análisis Combinado (Emoción + Causa Raíz)**:
+    *   El motor acústico evaluará el tono constantemente.
+    *   Si detecta un pico negativo (Ira, Tristeza), invocará a Qwen2.5 y al RAG para leer las transcripciones previas e indicar **por qué** el cliente se siente así, sugiriendo además una respuesta basada en tu manual de ventas.
 
 ---
 
 ## 🆘 7. Solución de Problemas
 
+*   **Error "CUDA Out of Memory"**: Indica que tu GPU no tiene los 6GB libres necesarios. Cierra navegadores pesados o aplicaciones que consuman VRAM antes de iniciar `main.py`.
 *   **Error "Permission Denied" en audio**: Cierra otras aplicaciones que puedan estar bloqueando el micrófono o el VB-Cable de manera exclusiva.
-*   **No se detectan sujetos / Siempre dice Silencio**: Asegúrate de que el audio de la llamada está llegando realmente a **CABLE Input**. Puedes verificarlo viendo las barras verdes en el mezclador de volumen de Windows.
-*   **Error descargando modelos (HttpError / Unauthorized)**: Verifica que tu `HF_TOKEN` es válido y asegúrate de haber aceptado manualmente las condiciones en Hugging Face tanto para `pyannote/speaker-diarization-3.1` como para `pyannote/segmentation-3.0`.
-*   **Identidades duplicadas (Sujeto A, Sujeto B... cuando solo hay un cliente)**: Asegúrate de establecer el **Límite de Hablantes** a 1 antes de iniciar el motor para forzar a la red neuronal a agrupar todas las voces no-comerciales en un solo perfil.
+*   **No se detectan sujetos / Siempre dice Silencio**: Asegúrate de que el audio de la llamada está llegando realmente a **CABLE Input**.
+*   **Error de BitsAndBytes (Falta DLL o librería)**: Asegúrate de tener instalado el CUDA Toolkit compatible con tu versión de PyTorch de Windows.
+*   **Identidades duplicadas (Sujeto A, Sujeto B... cuando solo hay un cliente)**: Asegúrate de establecer el **Límite de Hablantes** a 1 antes de iniciar el motor para forzar a la red neuronal a agrupar todo en un solo perfil.

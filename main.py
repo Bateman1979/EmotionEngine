@@ -23,10 +23,32 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+import subprocess
+import time
+
+def free_port(port):
+    """Busca y destruye cualquier proceso 'zombie' que esté ocupando el puerto en Windows."""
+    try:
+        # Busca quién tiene el puerto en modo escucha
+        result = subprocess.check_output(f'netstat -ano | findstr :{port}', shell=True).decode()
+        for line in result.splitlines():
+            if 'LISTENING' in line:
+                # El PID es la última columna
+                pid = line.strip().split()[-1]
+                print(f"[!] El puerto {port} estaba bloqueado por el proceso {pid}. Liberando...")
+                subprocess.call(f'taskkill /F /PID {pid}', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(1)  # Dar tiempo al OS para liberar el socket
+                break
+    except subprocess.CalledProcessError:
+        pass  # El puerto ya está libre
+
 if __name__ == "__main__":
     import uvicorn
     # Importación absoluta desde la nueva estructura
     from backend.api.server import app
+    
+    # Liberar puerto si quedó colgado de una ejecución anterior
+    free_port(8001)
     
     print("\n" + "="*40)
     print("      EMOTION ENGINE - WEB DASHBOARD")

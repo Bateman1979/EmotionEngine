@@ -1,6 +1,6 @@
 # Documentación Funcional: Pipeline de Análisis Emocional 🧠🎙️
 
-Este documento describe el flujo técnico y lógico que sigue el **Emotion Engine** desde el momento en que se inicia la aplicación hasta que se entrega el primer resultado de análisis emocional en la interfaz.
+Este documento describe el flujo técnico y lógico que sigue el **Emotion Engine** en su estado actual, desde el momento en que se inicia la aplicación hasta la extracción de la causa raíz emocional mediante Modelos de Lenguaje Grandes (LLMs).
 
 ---
 
@@ -8,10 +8,12 @@ Este documento describe el flujo técnico y lógico que sigue el **Emotion Engin
 
 Cuando ejecutas `python main.py`, el sistema realiza los siguientes pasos previos:
 
-1.  **Carga de Modelos**:
-    *   **Silero VAD**: Se carga en memoria para la detección de voz ultra-rápida.
-    *   **Pyannote Diarization**: Se conecta con Hugging Face para cargar los modelos de segmentación y embedding de locutores.
-    *   **GSI-UPM Wav2Vec2**: Se inicializa el modelo de clasificación de emociones (especializado en español).
+1.  **Precarga de Modelos (`model_preloader.py`)**:
+    *   **Silero VAD**: Detección de voz ultra-rápida.
+    *   **Pyannote Diarization**: Segmentación y cálculo de *embeddings* (huellas acústicas) de locutores.
+    *   **GSI-UPM Wav2Vec2**: Clasificación de emociones (especializado en español).
+    *   **Whisper (OpenAI)**: Reconocimiento Automático del Habla (ASR) para transcripción.
+    *   **Qwen2.5-3B-Instruct (LLM)**: Extracción de conceptos y causas raíz en modo 4-bit (bitsandbytes).
 2.  **Levantamiento del Servidor**:
     *   Se inicia un servidor **FastAPI** en el puerto 8001.
     *   Se habilitan los **WebSockets** para comunicación bidireccional en tiempo real con el frontend.
@@ -23,11 +25,11 @@ Cuando ejecutas `python main.py`, el sistema realiza los siguientes pasos previo
 
 Una vez que el usuario pulsa **"Iniciar Análisis"** en la web:
 
-1.  **Apertura del Stream**: El `AudioHandler` busca el dispositivo "VB-Cable" y abre un flujo de audio a 16kHz (mono).
+1.  **Apertura del Stream**: El `AudioHandler` abre un flujo de audio a 16kHz (mono), capturando desde el micrófono virtual o físico.
 2.  **Detección de Voz (Silero)**:
     *   El motor procesa el audio en "chunks" de milisegundos.
     *   Si el nivel de energía y la probabilidad de voz superan el umbral (`VAD_THRESHOLD`), el sistema marca el inicio de un evento de habla.
-3.  **Segmentación Temporal**: El `AudioSegmenter` agrupa estos chunks hasta completar un bloque de aproximadamente **2 segundos**. Este bloque se guarda temporalmente en disco.
+3.  **Segmentación Temporal**: El `AudioSegmenter` agrupa estos chunks hasta completar un bloque inicial de aproximadamente **2 segundos**. Este bloque se guarda temporalmente en disco.
 
 ---
 
@@ -35,42 +37,46 @@ Una vez que el usuario pulsa **"Iniciar Análisis"** en la web:
 
 Con el bloque de 2 segundos listo, entra en juego la **Diarización**:
 
-1.  **Extracción de Características**: El modelo analiza el fragmento y detecta cuántas voces hay y en qué milisegundos exactos habla cada una.
-2.  **Cálculo de Embeddings**: Se genera una "huella acústica" matemática de cada voz detectada.
-3.  **Comparación de Identidad (Sistema de Dos Niveles v5)**:
-    *   **Prioridad 0 - Filtrado de Comercial**: El `IdentityManager` compara la huella con la calibración del comercial. Si coincide, el audio se descarta (no se procesa su emoción).
-    *   **Prioridad 1 - Perfiles Graduados**: Se compara con los sujetos ya confirmados (Sujeto A, B...) usando un umbral estricto. Si se alcanza el límite máximo de hablantes, el umbral se flexibiliza dinámicamente para evitar perfiles duplicados.
-    *   **Prioridad 2 - Perfiles Tentativos**: Si no encaja con los graduados, se busca entre voces temporales (umbral permisivo). Los perfiles tentativos similares se consolidan continuamente. Al acumular **15 segundos**, se "gradúan" y reciben un nombre oficial (ej. Sujeto A).
-    *   **Prioridad 3 - Nuevo Perfil**: Si es una voz completamente nueva, se crea como perfil tentativo a la espera de más muestras.
+1.  **Extracción de Características**: El modelo analiza el fragmento temporal y detecta cuántas voces hay y sus tiempos exactos.
+2.  **Comparación de Identidad (`IdentityManager`)**:
+    *   **Prioridad 0 - Filtrado de Comercial**: Se compara la huella con la calibración del comercial. Si coincide, no se procesa su emoción (solo STT).
+    *   **Prioridad 1 - Perfiles Graduados**: Se compara con sujetos confirmados (Sujeto A, B...).
+    *   **Prioridad 2 - Perfiles Tentativos**: Si no encaja, se busca entre voces temporales, consolidándolas poco a poco hasta que alcanzan 15 segundos y se "gradúan".
+3.  **Buffering por Hablante**: El audio se recorta y se envía al buffer temporal del hablante específico. El motor no analiza cada 2 segundos para evitar inestabilidad semántica y emocional.
 
 ---
 
-## 🧪 Fase 4: Acumulación y Análisis Emocional
+## 🧪 Fase 4: Consolidación (15s) y Transcripción
 
-Este es el paso crítico para garantizar la precisión:
+El sistema aplica una estrategia de "Bloques Consolidados" de 15 segundos para dar suficiente contexto a los modelos.
 
-1.  **Buffer por Hablante**: El motor mantiene un buffer de audio independiente para cada sujeto detectado.
-2.  **Criterio de Ventana (15s)**:
-    *   El sistema no analiza emociones en fragmentos de 2s (sería impreciso).
-    *   Espera a que un sujeto específico haya acumulado **15 segundos** de voz neta (pueden ser en turnos separados).
-3.  **Clasificación de Emociones (Wav2Vec2)**:
-    *   Al llegar a los 15s, se concatena el audio y se envía al modelo `GSI-UPM`.
-    *   El modelo devuelve un vector de probabilidades: **Alegría, Tristeza, Ira, Miedo, Neutro, etc.**
-    *   Se selecciona la emoción con mayor confianza.
+1.  **Ventana de 15s o Cambio de Turno/Silencio**: Cuando el buffer de un sujeto acumula 15s de voz real (o hay un silencio largo / cambio de turno), el bloque se cierra y se guarda como `.wav`.
+2.  **Transcripción (Whisper ASR)**:
+    *   El bloque de audio se envía a Whisper.
+    *   El texto extraído se guarda en un **Transcript Manager** cronológico, registrando los tiempos absolutos de inicio y fin, así como el autor de cada frase.
+    *   La transcripción no se realiza para perfiles que aún son "tentativos" ("Identificando...").
 
 ---
 
-## 📊 Fase 5: Reporte de Resultados
+## 📊 Fase 5: Análisis Emocional Acústico
 
-1.  **Persistencia**: El resultado se guarda en `data/results.json` junto con la ruta al archivo de audio analizado.
-2.  **Broadcast vía WebSocket**: El servidor envía un objeto JSON al frontend con:
-    *   Nombre del Sujeto.
-    *   Emoción detectada.
-    *   Porcentaje de confianza.
-    *   Distribución de todas las probabilidades.
-3.  **Actualización de UI**: El dashboard recibe el mensaje y actualiza instantáneamente los gráficos de evolución temporal y el registro detallado.
+1.  **Clasificación de Emociones (Wav2Vec2)**:
+    *   Si el sujeto **no es el Comercial**, el bloque de audio consolidado se envía al modelo `GSI-UPM`.
+    *   El modelo devuelve un vector de probabilidades (Alegría, Tristeza, Ira, Miedo, Neutro, etc.) y selecciona la emoción con mayor confianza.
+2.  **Actualización UI Básica**: Se envía un evento por WebSocket al dashboard para actualizar la gráfica de emociones del sujeto.
 
 ---
 
-## 💡 Resumen del Ciclo de Vida
-`Arranque` ➡️ `VAD (Voz)` ➡️ `Diarización (¿Quién?)` ➡️ `Buffer (Acumular 15s)` ➡️ `IA (Emoción)` ➡️ `Dashboard`
+## 🔍 Fase 6: Análisis de Causa Raíz (Concept Extractor)
+
+Si la emoción detectada en la Fase 5 es considerada "intensa" o detonante (ej. Tristeza, Ira, Sorpresa) y supera cierto umbral de confianza:
+
+1.  **Recuperación de Contexto (RAG-like)**: Se solicitan al Transcript Manager los últimos ~60 segundos de transcripciones cronológicas de **todos los interlocutores** (contexto conversacional).
+2.  **Inferencia Semántica (LLM)**: En un hilo separado para no bloquear el audio, el texto se inyecta en un *prompt dinámico* dirigido a Qwen2.5.
+3.  **Extracción del Concepto**: El LLM analiza *qué* se estaba diciendo justo en el momento en que se produjo la emoción acústica y extrae un resumen corto (ej. "Preocupación por los plazos de entrega").
+4.  **Tarjeta de Insights**: El concepto detonante viaja vía WebSocket al frontend, donde se renderiza como una alerta valiosa para el usuario.
+
+---
+
+## 💡 Resumen del Ciclo de Vida v5
+`Audio (Stream)` ➡️ `VAD (2s)` ➡️ `Diarización (Sujeto A)` ➡️ `Buffer (15s)` ➡️ `Whisper (STT)` ➡️ `Wav2Vec2 (Emoción)` ➡️ `[Si hay Trigger] Qwen (Causa Raíz)` ➡️ `Dashboard (Conceptos)`

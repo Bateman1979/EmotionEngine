@@ -8,18 +8,21 @@
 # ==============================================================================
 import numpy as np
 import os
+import time
 import pickle
 from scipy.spatial.distance import cosine
-from backend.config import SPEAKERS_FILE, CALIBRATION_FILE
+from backend.config import SPEAKERS_FILE, CALIBRATION_FILE, DIARIZATION_COMMERCIAL_THRESHOLD, DIARIZATION_TENTATIVE_MAX_AGE
 
 
 class SpeakerProfile:
     """Representa a un hablante y su evolución sonora."""
-    def __init__(self, embedding, initial_duration, name=None):
+    def __init__(self, embedding, initial_duration, name=None, tentative_id=None):
         self.centroid = embedding / np.linalg.norm(embedding)
         self.total_duration = initial_duration
         self.name = name  # None = tentativo, "Sujeto X" = graduado
+        self.tentative_id = tentative_id # ID fijo para la fase tentativa
         self.samples_count = 1
+        self.last_updated = time.time()
 
     def update(self, new_embedding, duration):
         """Fusiona y perfecciona el perfil con el nuevo audio."""
@@ -30,10 +33,14 @@ class SpeakerProfile:
         self.centroid = self.centroid / np.linalg.norm(self.centroid)
         self.total_duration += duration
         self.samples_count += 1
+        self.last_updated = time.time()
 
     @property
     def is_graduated(self):
         return self.name is not None and not self.name.startswith("Tentativo")
+
+    def get_display_name(self):
+        return self.name if self.is_graduated else self.tentative_id
 
 
 class SpeakerManager:
@@ -43,17 +50,18 @@ class SpeakerManager:
     - Nivel 2 (Graduados): Perfiles seguros con ≥15s, se comparan estrictamente.
     """
     def __init__(self,
-                 strict_threshold=0.48,    # Para comparar con perfiles graduados
-                 tentative_threshold=0.60, # Para fusionar perfiles tentativos entre sí
+                 strict_threshold=0.55,    # Para comparar con perfiles graduados
+                 tentative_threshold=0.70, # Aumentado a 0.70 para tolerar fragmentos muy ruidosos
                  graduation_time=15.0,
                  max_speakers=None):
         self.strict_threshold    = strict_threshold
         self.tentative_threshold = tentative_threshold
         self.graduation_time     = graduation_time
         self.max_speakers        = max_speakers
-        self.profiles            = []   # Lista de SpeakerProfile (tentativos + graduados)
+        self.profiles            = []   # Lista de SpeakerProfile
         self.commercial_profile  = None
         self.speaker_counter     = 0
+        self.tentative_counter   = 0
         self.load_identities()
         self.load_calibration()
 
@@ -66,7 +74,9 @@ class SpeakerManager:
         # ── Prioridad 0: ¿Es el Comercial calibrado? ──────────────────────────
         if self.commercial_profile:
             dist = cosine(embedding, self.commercial_profile.centroid)
-            if dist < self.strict_threshold:
+            if dist < DIARIZATION_COMMERCIAL_THRESHOLD:
+                # Permitimos flexibilidad: actualizamos el perfil del comercial suavemente
+                # para que se adapte a cambios en su tono de voz y evitar crear perfiles fantasma.
                 self.commercial_profile.update(embedding, duration)
                 return "Comercial"
 
@@ -74,15 +84,13 @@ class SpeakerManager:
         graduated = [p for p in self.profiles if p.is_graduated]
         best_grad, min_grad_dist = self._best_match(embedding, graduated)
 
-        # Ajuste dinámico: si ya llegamos al máximo de hablantes, somos más permisivos
-        # para evitar crear perfiles extra innecesarios.
         current_threshold = self.strict_threshold
         if self.max_speakers and len(graduated) >= self.max_speakers:
-            current_threshold = 0.65 # Umbral muy permisivo para forzar la unión
+            current_threshold = 0.65
 
         if best_grad and min_grad_dist < current_threshold:
             best_grad.update(embedding, duration)
-            return best_grad.name
+            return best_grad.get_display_name()
 
         # ── Prioridad 2: Comparar con perfiles TENTATIVOS (umbral permisivo) ──
         tentatives = [p for p in self.profiles if not p.is_graduated]
@@ -90,21 +98,38 @@ class SpeakerManager:
 
         if best_tent and min_tent_dist < self.tentative_threshold:
             best_tent.update(embedding, duration)
-            # ¿Listo para graduarse?
             if best_tent.total_duration >= self.graduation_time:
                 self.speaker_counter += 1
                 best_tent.name = f"Sujeto {chr(64 + self.speaker_counter)}"
                 print(f"\n[ID] ¡{best_tent.name} graduado! ({best_tent.total_duration:.1f}s acumulados)")
                 self.save_identities()
-            return best_tent.name if best_tent.is_graduated else f"Identificando... ({best_tent.total_duration:.1f}s)"
+            return best_tent.get_display_name()
 
         # ── Prioridad 3: Demasiado diferente a todo → nuevo perfil tentativo ──
-        new_profile = SpeakerProfile(embedding, duration)
+        self.tentative_counter += 1
+        t_id = f"Identificando_{self.tentative_counter}"
+        new_profile = SpeakerProfile(embedding, duration, tentative_id=t_id)
         self.profiles.append(new_profile)
-        # Intentar consolidar perfiles tentativos similares entre sí
+        
         self._consolidate_tentatives()
-        print(f"[ID] Nuevo perfil tentativo #{len(self.profiles)} ({duration:.1f}s)")
-        return f"Identificando... ({duration:.1f}s)"
+        self._purge_stale_tentatives()
+        
+        # Validar si tras consolidar, el nuevo perfil fue absorbido por otro
+        if new_profile not in self.profiles:
+            # Fue absorbido, volver a buscar a quién pertenece este embedding (sin sumar duración extra)
+            return self.get_identity(embedding, 0)
+            
+        print(f"[ID] Nuevo perfil {t_id} ({duration:.1f}s)")
+        return new_profile.get_display_name()
+
+    def _purge_stale_tentatives(self):
+        """Elimina perfiles tentativos que llevan inactivos más de 60 segundos."""
+        now = time.time()
+        stale = [p for p in self.profiles if not p.is_graduated and (now - p.last_updated > DIARIZATION_TENTATIVE_MAX_AGE)]
+        for p in stale:
+            self.profiles.remove(p)
+        if stale:
+            print(f"[ID] Eliminados {len(stale)} perfiles tentativos caducados. Activos: {len(self.profiles)}")
 
     def _best_match(self, embedding, profiles):
         """Devuelve (mejor perfil, distancia mínima) de una lista dada."""
@@ -153,7 +178,8 @@ class SpeakerManager:
 
     def set_commercial_profile(self, embedding):
         """Establece la huella del comercial tras la calibración."""
-        self.commercial_profile = SpeakerProfile(embedding, 15.0, name="Comercial")
+        self.commercial_profile = SpeakerProfile(embedding, 30.0, name="Comercial")
+        self.commercial_profile.samples_count = 15  # Asumimos 15 muestras previas para un drift muy suave
         self.save_calibration()
         print("[ID] Perfil del COMERCIAL registrado correctamente.")
 
@@ -187,7 +213,8 @@ class SpeakerManager:
             try:
                 with open(CALIBRATION_FILE, 'rb') as f:
                     centroid = pickle.load(f)
-                    self.commercial_profile = SpeakerProfile(centroid, 15.0, name="Comercial")
+                    self.commercial_profile = SpeakerProfile(centroid, 30.0, name="Comercial")
+                    self.commercial_profile.samples_count = 15
                 print("[MEMORIA] Huella del comercial cargada.")
             except Exception as e:
                 print(f"[WARN] Error cargando calibración: {e}")

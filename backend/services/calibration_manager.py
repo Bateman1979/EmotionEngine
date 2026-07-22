@@ -9,7 +9,6 @@
 import os
 import pickle
 import torch
-import torchaudio
 import soundfile as sf
 import subprocess
 from backend.config import CALIBRATION_FILE, AUDIO_DIR
@@ -28,42 +27,61 @@ class CalibrationManager:
         """
         print(f"[CALIB] Procesando archivo: {file_path} (Tamaño: {os.path.getsize(file_path)} bytes)")
         
-        # 1. Conversión a WAV usando ffmpeg (garantiza compatibilidad total)
+        # 1. Conversión a WAV 16kHz mono usando ffmpeg
         wav_path = file_path.replace(".webm", ".wav")
         try:
             print(f"[CALIB] Convirtiendo {file_path} a WAV...")
-            # Sobrescribimos si ya existe (-y)
             subprocess.run(['ffmpeg', '-y', '-i', file_path, '-ar', '16000', '-ac', '1', wav_path], 
                            check=True, capture_output=True)
             file_path = wav_path
             print(f"[CALIB] Conversión exitosa: {file_path}")
         except Exception as e:
             print(f"[CALIB] Error en conversión ffmpeg: {e}")
-            # Si falla, intentamos seguir con el original por si acaso
 
         try:
-            # 2. Carga del audio
-            try:
-                waveform, sample_rate = torchaudio.load(file_path)
-                print(f"[CALIB] Audio cargado con torchaudio. SR: {sample_rate}, Channels: {waveform.shape[0]}")
-            except Exception as e:
-                print(f"[CALIB] Error cargando con torchaudio: {e}. Intentando fallback...")
-                import soundfile as sf
-                data, sample_rate = sf.read(file_path)
-                waveform = torch.from_numpy(data).float()
-                if len(waveform.shape) == 1:
-                    waveform = waveform.unsqueeze(0)
-                else:
-                    waveform = waveform.T
-                print(f"[CALIB] Audio cargado con soundfile fallback.")
+            # 2. Carga del audio con soundfile (consistente con el resto del proyecto)
+            import numpy as np
+            data, sample_rate = sf.read(file_path)
+            if len(data.shape) > 1:
+                data = np.mean(data, axis=1)
 
-            # Convertir a mono si no lo hizo ffmpeg
-            if waveform.shape[0] > 1:
-                waveform = torch.mean(waveform, dim=0, keepdim=True)
+            # === DIAGNÓSTICO DE AUDIO ===
+            duration_secs = len(data) / sample_rate
+            rms = np.sqrt(np.mean(data**2))
+            peak = np.max(np.abs(data))
+            print(f"[CALIB] 📊 Diagnóstico del audio:")
+            print(f"[CALIB]   Duración: {duration_secs:.1f}s | SR: {sample_rate}Hz")
+            print(f"[CALIB]   RMS: {rms:.6f} | Peak: {peak:.6f}")
+            print(f"[CALIB]   Shape: {data.shape} | dtype: {data.dtype}")
             
-            # Re-muestreo a 16kHz si no lo hizo ffmpeg
+            if rms < 0.0001:
+                print(f"[CALIB] ⚠️ AUDIO PRÁCTICAMENTE VACÍO (RMS={rms:.8f}). El dispositivo de grabación no está captando sonido.")
+                return False, f"El audio grabado está vacío (RMS={rms:.8f}). Asegúrate de que el navegador usa el dispositivo de audio correcto."
+            # ============================
+
+            # --- VAD Basado en Energía para limpiar la Calibración ---
+            chunk_size = int(sample_rate * 0.25)  # chunks de 250ms
+            if len(data) > chunk_size:
+                chunks = [data[i:i+chunk_size] for i in range(0, len(data), chunk_size)]
+                energies = [np.mean(c**2) for c in chunks]
+                
+                threshold = np.max(energies) * 0.05
+                clean_data = [c for c, e in zip(chunks, energies) if e > threshold]
+                
+                if clean_data:
+                    data = np.concatenate(clean_data)
+                    print(f"[CALIB] Silencios eliminados. Duración limpia: {len(data)/sample_rate:.1f}s")
+                else:
+                    print(f"[CALIB] ⚠️ VAD descartó TODO el audio. Usando el original.")
+            # ---------------------------------------------------------
+
+            waveform = torch.from_numpy(data).float().unsqueeze(0)
+            print(f"[CALIB] Audio final listo. Muestras: {waveform.shape[1]}")
+
+            # Re-muestreo a 16kHz si ffmpeg no lo hizo
             if sample_rate != 16000:
                 print(f"[CALIB] Re-muestreando de {sample_rate} a 16000...")
+                import torchaudio
                 resampler = torchaudio.transforms.Resample(sample_rate, 16000)
                 waveform = resampler(waveform)
                 sample_rate = 16000

@@ -16,9 +16,13 @@ class VoiceDetector:
     Esta clase se encarga de monitorizar el flujo de audio y detectar 
     la actividad de voz humana utilizando Silero VAD.
     """
-    def __init__(self):
-        # Carga el modelo de detección de voz (Voice Activity Detection)
-        self.model = load_silero_vad()
+    def __init__(self, model=None):
+        # Usa el modelo pre-cargado si se proporciona, o carga uno nuevo
+        if model is not None:
+            self.model = model
+        else:
+            # Carga el modelo de detección de voz (Voice Activity Detection)
+            self.model = load_silero_vad()
         # Resetea los estados internos del modelo (importante para Silero v5)
         self.model.reset_states()
         

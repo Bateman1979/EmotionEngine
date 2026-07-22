@@ -10,11 +10,9 @@ import os
 import wave
 import time
 import pyaudio
-from backend.config import AUDIO_DIR, RATE, CHANNELS, FORMAT
+from backend.config import AUDIO_DIR, RATE, CHANNELS, FORMAT, CHUNKS_PER_SECOND, CHUNK_WINDOW_SECS
 
 # Número de chunks por segundo (RATE / CHUNK ≈ 31 chunks/s)
-CHUNKS_PER_SECOND = 31
-CHUNK_WINDOW_SECS = 2          # Emitir un chunk cada 2 segundos
 CHUNK_WINDOW_SIZE = CHUNKS_PER_SECOND * CHUNK_WINDOW_SECS  # ~62 chunks
 
 class AudioSegmenter:

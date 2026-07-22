@@ -11,6 +11,7 @@ let history = [];
 let timelineChart;
 let speakerCharts = {}; // Object to store Chart instances for each speaker
 let socket;
+let modelsReady = false;  // Estado de precarga de modelos
 
 // Mapa de colores por emoción (claves en español capitalizado, igual que emotion_detection.py)
 const EMOTION_COLORS = {
@@ -46,12 +47,16 @@ async function init() {
     setupWebSocket();
     await checkCalibration();
     checkEngineStatus();
+    checkModelsStatus();  // Consultar estado de precarga de modelos
 
     startBtn.addEventListener('click', startEngine);
     stopBtn.addEventListener('click', stopEngine);
     
     document.getElementById('list-devices').addEventListener('click', listDevices);
     
+    const resetDataBtn = document.getElementById('reset-data-btn');
+    if (resetDataBtn) resetDataBtn.addEventListener('click', resetData);
+
     document.getElementById('start-calib-btn').addEventListener('click', startCalibration);
     document.getElementById('skip-calib-btn').addEventListener('click', () => {
         console.log("[CALIB] Saltando calibración por petición del usuario.");
@@ -60,6 +65,25 @@ async function init() {
 }
 
 // --- API Calls ---
+async function resetData() {
+    if (!confirm("⚠️ ¿Estás seguro de que quieres borrar todo el historial, perfiles de audio, calibraciones y resultados? (La base de conocimiento RAG NO se borrará).")) {
+        return;
+    }
+    try {
+        const response = await fetch('/api/reset_data', { method: 'POST' });
+        const result = await response.json();
+        if (result.status === 'success') {
+            alert("✅ Datos borrados correctamente. La página se recargará para limpiar el estado.");
+            window.location.reload();
+        } else {
+            alert("❌ Error al borrar datos: " + result.message);
+        }
+    } catch (error) {
+        console.error(error);
+        alert("Error de conexión al intentar borrar datos.");
+    }
+}
+
 async function fetchHistory() {
     try {
         const response = await fetch('/api/history');
@@ -89,6 +113,16 @@ async function startEngine() {
     if (params.toString()) url += `?${params.toString()}`;
 
     startBtn.disabled = true;
+    
+    // Si los modelos aún no están listos, informar al usuario
+    if (!modelsReady) {
+        startBtn.innerHTML = "⏳ Esperando modelos...";
+        showToast("Los modelos de IA aún se están cargando. Espera unos segundos.", "info");
+        startBtn.disabled = false;
+        startBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg><span>Iniciar Análisis</span>';
+        return;
+    }
+    
     startBtn.innerHTML = "⏳ Iniciando...";
     try {
         const response = await fetch(url, { method: 'POST' });
@@ -250,8 +284,16 @@ function setupWebSocket() {
             lastEmotionEl.style.color = "var(--text-primary)";
             history.push(msg.data);
             updateUI();
+        } else if (msg.type === 'model_loading') {
+            updateModelsStatusUI(msg.data);
+        } else if (msg.type === 'concept') {
+            addConceptInsight(msg.data);
         } else if (msg.type === 'error') {
             showToast(msg.value);
+        } else if (msg.type === 'calibration') {
+            if (typeof handleCalibrationEvent === 'function') {
+                handleCalibrationEvent(msg);
+            }
         }
     };
 
@@ -481,6 +523,147 @@ async function listDevices() {
     } catch (error) {
         showToast("Error al listar dispositivos");
     }
+}
+
+// --- Models Preload Status ---
+async function checkModelsStatus() {
+    try {
+        const response = await fetch('/api/models_status');
+        const data = await response.json();
+        updateModelsStatusUI(data);
+    } catch (error) {
+        console.error("Failed to check models status:", error);
+    }
+}
+
+function updateModelsStatusUI(data) {
+    const container = document.getElementById('models-status');
+    const label = document.getElementById('models-status-label');
+    const fill = document.getElementById('models-progress-fill');
+    const detail = document.getElementById('models-status-detail');
+
+    if (!container || !data) return;
+
+    const pct = Math.round((data.loaded / data.total) * 100);
+    fill.style.width = `${pct}%`;
+
+    if (data.ready && !data.error) {
+        // ✅ Todos los modelos cargados
+        modelsReady = true;
+        container.classList.remove('loading');
+        container.classList.add('ready');
+        label.textContent = '✅ Modelos listos';
+        detail.textContent = `${data.total}/${data.total} — Inicio instantáneo`;
+    } else if (data.error) {
+        // ❌ Error durante la carga
+        modelsReady = true;  // Permitir inicio aunque falle (fallback a carga individual)
+        container.classList.remove('loading');
+        label.textContent = '⚠️ Error parcial';
+        detail.textContent = data.error.substring(0, 50);
+        container.style.borderColor = 'rgba(248, 113, 113, 0.3)';
+    } else {
+        // 🔄 Cargando...
+        container.classList.add('loading');
+        container.classList.remove('ready');
+        label.textContent = `🧠 Cargando modelos (${data.loaded}/${data.total})`;
+        detail.textContent = data.current || 'Iniciando...';
+    }
+}
+
+// --- Root Cause / Insights ---
+function addConceptInsight(data) {
+    const feed = document.getElementById('insights-feed');
+    if (!feed) return;
+
+    // Remove empty state if it exists
+    const emptyState = feed.querySelector('.empty-state');
+    if (emptyState) {
+        emptyState.remove();
+    }
+
+    // Get color for emotion
+    const color = EMOTION_COLORS[data.emotion] || EMOTION_COLORS['Neutral'];
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    // Build keywords HTML
+    let keywordsHtml = '';
+    if (data.palabras_clave && Array.isArray(data.palabras_clave)) {
+        keywordsHtml = data.palabras_clave.map(kw => `<span class="insight-keyword">${kw}</span>`).join('');
+    }
+
+    // Determine severity class
+    const severity = data.severidad ? data.severidad.toLowerCase() : 'media';
+
+    // Create card element
+    const card = document.createElement('div');
+    card.className = 'insight-card';
+    card.style.setProperty('--card-color', color);
+    
+    card.innerHTML = `
+        <div class="insight-card-header">
+            <div class="insight-speaker">
+                <span class="insight-speaker-name">${data.speaker || 'Desconocido'}</span>
+                <span class="insight-emotion-badge">${data.emotion}</span>
+            </div>
+            <div class="insight-meta">
+                <span class="insight-time">${timeStr}</span>
+                <span class="insight-severity ${severity}">${data.severidad || 'Media'}</span>
+            </div>
+        </div>
+        <div class="insight-body">
+            <p class="insight-trigger">${data.concepto_detonante || 'Concepto detectado'}</p>
+            ${data.contexto_para_rag ? `<p class="insight-context-rag">${data.contexto_para_rag}</p>` : ''}
+        </div>
+        <div class="insight-footer">
+            ${keywordsHtml}
+        </div>
+        <button class="insight-rag-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            Consultar Manual RAG
+        </button>
+        <div class="rag-container" style="display: none;"></div>
+    `;
+
+    // Add event listener for RAG button
+    const ragBtn = card.querySelector('.insight-rag-btn');
+    const ragContainer = card.querySelector('.rag-container');
+    
+    ragBtn.addEventListener('click', async () => {
+        // Disable button and show loading
+        ragBtn.style.display = 'none';
+        ragContainer.style.display = 'block';
+        ragContainer.innerHTML = `
+            <div class="rag-loading">
+                <div class="dot"></div>
+                <div class="dot"></div>
+                <div class="dot"></div>
+            </div>
+        `;
+
+        try {
+            const query = data.contexto_para_rag || data.concepto_detonante || '';
+            const response = await fetch(`/api/rag_search?query=${encodeURIComponent(query)}`);
+            const ragData = await response.json();
+            
+            ragContainer.innerHTML = `
+                <div class="insight-rag-result">
+                    <div class="insight-rag-result-title">📚 Protocolo Sugerido</div>
+                    ${ragData.result}
+                </div>
+            `;
+        } catch (err) {
+            ragContainer.innerHTML = `
+                <div class="insight-rag-result" style="border-left-color: var(--danger);">
+                    <div class="insight-rag-result-title" style="color: var(--danger);">⚠️ Error RAG</div>
+                    No se pudo contactar con la base de conocimiento.
+                </div>
+            `;
+        }
+    });
+
+    // Add to feed (prepend to show newest first)
+    feed.insertBefore(card, feed.firstChild);
 }
 
 window.onload = init;

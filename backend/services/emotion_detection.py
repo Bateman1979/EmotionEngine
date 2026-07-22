@@ -17,13 +17,27 @@ class EmotionAnalyzer:
     Analizador de emociones estable para Español (GSI-UPM).
     Modelo optimizado para TFM con carga de pesos garantizada.
     """
-    def __init__(self, model_id="gsi-upm/wav2vec_spanish_emotion-analysis"):
-        print(f"\n[INFO] Cargando Motor de Emociones (Estable): {model_id}")
+    def __init__(self, model_id=None,
+                 model=None, feature_extractor=None, labels=None):
+        from backend.config import EMOTION_MODEL_ID
+        if model_id is None:
+            model_id = EMOTION_MODEL_ID
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         # Optimizaciones de GPU
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
+
+        # Si se proporcionan modelos pre-cargados, reutilizarlos
+        if model is not None and feature_extractor is not None:
+            self.model = model
+            self.feature_extractor = feature_extractor
+            self.labels = labels or self.model.config.id2label
+            print(f"[INFO] EmotionAnalyzer inicializado con modelo pre-cargado.")
+            return
+
+        # Carga estándar (fallback)
+        print(f"\n[INFO] Cargando Motor de Emociones (Estable): {model_id}")
         
         try:
             self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_id)
