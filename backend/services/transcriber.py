@@ -1,17 +1,7 @@
-# ==============================================================================
-# © 2026 Valentín González Coira (cabezaburbuja@gmail.com).
-# EBIS Business School - Trabajo de Fin de Máster (TFM).
-# Todos los derechos reservados.
-# Este código es propiedad intelectual exclusiva del autor.
-# Queda prohibida su copia, distribución o modificación sin autorización expresa.
-# Proyecto: Emotion Engine
-# ==============================================================================
 import torch
 import numpy as np
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 from backend.config import WHISPER_MODEL, WHISPER_LANGUAGE, WHISPER_MODEL_MAP
-
-
 
 class Transcriber:
     """
@@ -32,10 +22,9 @@ class Transcriber:
             self.forced_decoder_ids = forced_decoder_ids or self.processor.get_decoder_prompt_ids(
                 language=self.language, task="transcribe"
             )
-            # from backend.config import WHISPER_VOCAB_HINT
-            # if WHISPER_VOCAB_HINT and self.processor:
-            #     self.prompt_ids = self.processor.get_prompt_ids(WHISPER_VOCAB_HINT, return_tensors="pt").to(self.device)
-            # else:
+            # NOTA: Pasar listas de palabras sueltas como prompt_ids en WhisperForConditionalGeneration
+            # rompe drásticamente la distribución de probabilidad del decodificador, causando
+            # alucinaciones severas y bucles ("y la gran desgracia de la vida...").
             self.prompt_ids = None
             
             print(f"[INFO] Transcriber inicializado con modelo pre-cargado en {self.device.upper()}.")
@@ -58,11 +47,6 @@ class Transcriber:
             self.forced_decoder_ids = self.processor.get_decoder_prompt_ids(
                 language=self.language, task="transcribe"
             )
-
-            # from backend.config import WHISPER_VOCAB_HINT
-            # if WHISPER_VOCAB_HINT and self.processor:
-            #     self.prompt_ids = self.processor.get_prompt_ids(WHISPER_VOCAB_HINT, return_tensors="pt").to(self.device)
-            # else:
             self.prompt_ids = None
 
             print(f"[INFO] Transcriber cargado en {self.device.upper()}.")
@@ -109,9 +93,10 @@ class Transcriber:
                 }
                 if attention_mask is not None:
                     gen_kwargs["attention_mask"] = attention_mask
-                if hasattr(self, 'prompt_ids') and self.prompt_ids is not None:
-                    gen_kwargs["prompt_ids"] = self.prompt_ids[0] if self.prompt_ids.dim() > 1 else self.prompt_ids
                     
+                # Nota: repetition_penalty nativo rompe la generación de Whisper, 
+                # así que dependemos exclusivamente del filtro post-procesado.
+                
                 predicted_ids = self.model.generate(
                     input_features,
                     **gen_kwargs
@@ -122,11 +107,25 @@ class Transcriber:
                 predicted_ids, skip_special_tokens=True
             )[0].strip()
 
-            # --- Filtro básico ---
-            # Descartar frases minúsculas de 1-2 letras (ej: "y", "eh", ".")
+            # --- Filtros de Limpieza ---
             clean_text = text.replace(".", "").replace(",", "").replace("!", "").replace("¡", "").strip()
-            if len(clean_text) <= 2:
-                text = ""
+            
+            # 1. Descartar frases minúsculas sin sentido o alucinaciones comunes de silencio
+            if len(clean_text) <= 6:
+                return []
+                
+            # 2. Descartar alucinaciones de bucle (ej: "Díaz, Díaz, Díaz..." o "de la, de la")
+            words = clean_text.lower().split()
+            
+            # Descartar frases muy cortas que solo son conectores comunes repetidos
+            if len(words) <= 3 and all(w in ['de', 'la', 'el', 'y', 'que', 'en', 'a', 'los'] for w in words):
+                return []
+                
+            if len(words) > 3:
+                unique_words = set(words)
+                # Si hay muy poca variedad de palabras en una frase, es un bucle
+                if len(unique_words) <= 2:
+                    return []
 
             if text:
                 return [{

@@ -43,10 +43,10 @@ MIN_SILENCE_CHUNKS = (1000 / 32)
 VAD_THRESHOLD = 0.5
 
 # --- Diarización (Identificación de Hablantes) ---
-DIARIZATION_STRICT_THRESHOLD = 0.55   # Distancia máxima para reconocer un perfil graduado (menor = más estricto)
-DIARIZATION_TENTATIVE_THRESHOLD = 0.60 # Distancia máxima para fusionar perfiles tentativos entre sí
+DIARIZATION_STRICT_THRESHOLD = 0.50   # Distancia máxima para reconocer un perfil graduado (menor = más estricto)
+DIARIZATION_TENTATIVE_THRESHOLD = 0.55 # Distancia máxima para fusionar perfiles tentativos entre sí
 DIARIZATION_GRADUATION_TIME = 15.0     # Segundos de audio acumulado para graduar un perfil tentativo
-DIARIZATION_COMMERCIAL_THRESHOLD = 0.60 # Tolerancia para reconocer la voz del comercial calibrado
+DIARIZATION_COMMERCIAL_THRESHOLD = 0.55 # Tolerancia para reconocer la voz del comercial calibrado (más estricto para evitar suplantaciones)
 DIARIZATION_TENTATIVE_MAX_AGE = 60.0   # Segundos antes de purgar un perfil tentativo inactivo
 
 # --- Rutas y Almacenamiento ---
@@ -62,7 +62,19 @@ KNOWLEDGE_BASE_FILE = os.path.join(DATA_DIR, "knowledge", "knowledge.txt")
 WHISPER_MODEL = "small"          # Opciones: tiny, base, small, medium, large-v3
 WHISPER_LANGUAGE = "es"          # Forzar español
 MIN_TRANSCRIBE_SECS = 1.0       # No transcribir segmentos menores a 1s
-WHISPER_VOCAB_HINT = "epistemología, empirismo, falsabilidad, evidencia, paradigma, heurística, cosmología, termodinámica, cuántica, determinismo, sesgo, metafísica, ontología, teleología, teodicea, contingencia, trascendencia, inmanencia, deísmo, panteísmo, agnosticismo, ateísmo, dogma, fe, revelación, exégesis, apologética, misticismo, escolástica, Tomás de Aquino, Kant, Nietzsche, Spinoza, Descartes, refutación, falacia, silogismo, premisa, axioma, tautología, reduccionismo, solipsismo, antropocentrismo, sátiro, herejía, ortodoxia, secularismo"
+WHISPER_VOCAB_HINT = (
+    "Dios, teísmo, ateísmo, agnosticismo, deísmo, panteísmo, panteísmo, epistemología, ontología, "
+    "metafísica, teleología, teodicea, cosmología, contingencia, trascendencia, inmanencia, dogma, "
+    "apologética, exégesis, argumento cosmológico, motor inmóvil, primera causa, argumento teleológico, "
+    "diseño inteligente, ajuste fino, fine-tuning, principio antrópico, argumento ontológico, "
+    "argumento moral, problema del mal, libre albedrío, determinismo, empirismo, falsabilidad, "
+    "navaja de Ockham, silogismo, premisa, axioma, falacia, tautología, reduccionismo, solipsismo, "
+    "Tomás de Aquino, cinco vías, Aristóteles, Immanuel Kant, Friedrich Nietzsche, Baruch Spinoza, "
+    "René Descartes, David Hume, Bertrand Russell, Richard Dawkins, William Lane Craig, Alvin Plantinga, "
+    "Big Bang, mecánica cuántica, termodinámica, entropía, evolución, darwinismo, multiverso, "
+    "abiogénesis, singularidad, omnipotencia, omnisciencia, omnipresencia, revelación, milagro"
+)
+
 WHISPER_MODEL_MAP = {            # Mapeo de nombres cortos a IDs de HuggingFace
     "tiny": "openai/whisper-tiny",
     "base": "openai/whisper-base",
@@ -73,13 +85,13 @@ WHISPER_MODEL_MAP = {            # Mapeo de nombres cortos a IDs de HuggingFace
 
 # --- Análisis de Causa Raíz ---
 TRIGGER_EMOTIONS = {             # Emociones que disparan el análisis + umbral mínimo
-    "Ira": 0.50,
-    "Tristeza": 0.50,
-    "Miedo": 0.50,
-    "Asco": 0.50,
-    "Alegria": 0.50,
-    "Sorpresa": 0.50,
-    "Neutro": 0.50,
+    "Ira": 0.70,
+    "Tristeza": 0.70,
+    "Miedo": 0.60,
+    "Asco": 0.60,
+    "Alegria": 0.60,
+    "Sorpresa": 0.60,
+    "Neutro": 1.00,
 }
 CONCEPT_WINDOW_BEFORE = 60      # Segundos de contexto ANTES del pico emocional
 CONCEPT_WINDOW_AFTER = 0        # 0 = Estrategia A (inmediata, sin esperar)

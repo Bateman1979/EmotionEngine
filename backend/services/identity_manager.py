@@ -32,7 +32,8 @@ class SpeakerProfile:
         self.centroid = (self.centroid * (1 - weight)) + (new_embedding * weight)
         self.centroid = self.centroid / np.linalg.norm(self.centroid)
         self.total_duration += duration
-        self.samples_count += 1
+        # Topamos a 25 muestras para garantizar un ~4% de capacidad de adaptación continua en llamadas largas
+        self.samples_count = min(25, self.samples_count + 1)
         self.last_updated = time.time()
 
     @property
@@ -75,8 +76,6 @@ class SpeakerManager:
         if self.commercial_profile:
             dist = cosine(embedding, self.commercial_profile.centroid)
             if dist < DIARIZATION_COMMERCIAL_THRESHOLD:
-                # Permitimos flexibilidad: actualizamos el perfil del comercial suavemente
-                # para que se adapte a cambios en su tono de voz y evitar crear perfiles fantasma.
                 self.commercial_profile.update(embedding, duration)
                 return "Comercial"
 
